@@ -1,0 +1,22 @@
+# Core
+langchain==0.3.25
+langchain-community==0.3.25
+langchain-openai==0.3.16
+openai==1.82.0
+
+# PDF parsing
+pymupdf==1.25.5
+pdfplumber==0.11.6
+
+# Vector store
+faiss-cpu==1.14.2
+
+# Embeddings (local fallback)
+sentence-transformers==4.1.0
+
+# UI
+streamlit==1.45.1
+
+# Utilities
+python-dotenv==1.1.0
+tqdm==4.67.1

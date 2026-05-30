@@ -1,0 +1,58 @@
+# ======================
+# Python
+# ======================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ======================
+# Virtual Environment
+# ======================
+.venv/
+venv/
+ENV/
+
+# ======================
+# Environment variables (VERY IMPORTANT)
+# ======================
+.env
+.env.*
+!.env.example
+
+# ======================
+# IDEs
+# ======================
+.vscode/
+.idea/
+
+# ======================
+# OS files
+# ======================
+.DS_Store
+Thumbs.db
+
+# ======================
+# Streamlit
+# ======================
+.streamlit/
+
+# ======================
+# Vector DB / FAISS / local indexes (IMPORTANT for you)
+# ======================
+*.faiss
+*.pkl
+*.index
+storage/index/
+storage/vectorstore/
+storage/chroma/
+
+# ======================
+# Logs
+# ======================
+*.log
+
+# ======================
+# Jupyter (if used later)
+# ======================
+.ipynb_checkpoints/
