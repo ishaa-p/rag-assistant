@@ -17,7 +17,9 @@ import streamlit as st
 from ingestion.pdf_parser import parse_pdf
 from ingestion.chunker import chunk_pages
 from storage.vector_store import VectorStore
-from retrieval.retriever import Retriever
+from storage.bm25_store import BM25Store
+from retrieval.hybrid_retriever import HybridRetriever
+from retrieval.reranker import Reranker
 from agent.generator import generate_answer
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -67,7 +69,7 @@ if "indexed_files" not in st.session_state:
 
 with st.sidebar:
     st.title("🔬 GraphRAG Assistant")
-    st.caption("Week 1 MVP · Vector search + citations")
+    st.caption("Week 2 · Hybrid search + reranking")
 
     st.divider()
     st.subheader("📄 Upload Documents")
@@ -106,12 +108,23 @@ with st.sidebar:
                     file_names.append(uploaded_file.name)
                     os.unlink(tmp_path)   # clean up temp file
 
-                # Build FAISS index
+                # Build FAISS index (semantic search)
                 vs = VectorStore()
                 vs.build(all_chunks)
 
+                # Build BM25 index (keyword search)
+                bm25 = BM25Store()
+                bm25.build(all_chunks)
+
+                # Load reranker (cached after first download)
+                if "reranker" not in st.session_state:
+                    with st.spinner("Loading reranker model (first run: ~80MB download)..."):
+                        st.session_state.reranker = Reranker()
+
                 st.session_state.vector_store = vs
-                st.session_state.retriever = Retriever(vs)
+                st.session_state.retriever = HybridRetriever(
+                    vs, bm25, st.session_state.reranker
+                )
                 st.session_state.indexed_files = file_names
                 st.session_state.messages = []   # reset chat
 
