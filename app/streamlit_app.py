@@ -1,10 +1,13 @@
 """
 app/streamlit_app.py
 
-Week 1 UI: upload PDFs, ask questions, see answers with citations.
+Week 3: Agentic RAG + Knowledge Graph visualisation.
 
-Run with:
-    streamlit run app/streamlit_app.py
+New in Week 3:
+  - Agent loop (plan → retrieve → verify → [refine →] generate)
+  - Neo4j graph store built during indexing
+  - Knowledge Graph tab with entity visualisation
+  - Sub-questions and retry count shown in chat
 """
 
 import sys
@@ -16,13 +19,15 @@ import streamlit as st
 
 from ingestion.pdf_parser import parse_pdf
 from ingestion.chunker import chunk_pages
+from ingestion.entity_extractor import EntityExtractor
 from storage.vector_store import VectorStore
 from storage.bm25_store import BM25Store
+from storage.graph_store import GraphStore
 from retrieval.hybrid_retriever import HybridRetriever
 from retrieval.reranker import Reranker
-from agent.generator import generate_answer
+from agent.rag_agent import run_agent
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
     page_title="GraphRAG Research Assistant",
@@ -34,7 +39,6 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .main { background-color: #0f1117; }
     .stApp { background-color: #0f1117; color: #e0e0e0; }
     .source-card {
         background: #1e2130;
@@ -45,152 +49,245 @@ st.markdown("""
         font-size: 0.85rem;
         color: #b0b8d0;
     }
+    .agent-step {
+        background: #181f2e;
+        border-left: 3px solid #9c6ef7;
+        padding: 8px 12px;
+        border-radius: 4px;
+        margin: 4px 0;
+        font-size: 0.82rem;
+        color: #a0a8c0;
+    }
     .confidence-high   { color: #4caf50; font-weight: 600; }
     .confidence-medium { color: #ff9800; font-weight: 600; }
     .confidence-low    { color: #f44336; font-weight: 600; }
-    .chat-user     { background: #1e2130; padding: 12px; border-radius: 8px; margin: 8px 0; }
-    .chat-assistant{ background: #151822; border: 1px solid #2a2f45;
-                     padding: 12px; border-radius: 8px; margin: 8px 0; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
-if "vector_store" not in st.session_state:
-    st.session_state.vector_store = None
-if "retriever" not in st.session_state:
-    st.session_state.retriever = None
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "indexed_files" not in st.session_state:
-    st.session_state.indexed_files = []
+for key, default in [
+    ("retriever", None), ("graph_store", None), ("entity_extractor", None),
+    ("messages", []), ("indexed_files", []), ("reranker", None),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     st.title("🔬 GraphRAG Assistant")
-    st.caption("Week 2 · Hybrid search + reranking")
+    st.caption("Week 3 · Agentic RAG + Knowledge Graph")
 
     st.divider()
     st.subheader("📄 Upload Documents")
 
     uploaded_files = st.file_uploader(
-        "Upload PDFs",
-        type=["pdf"],
-        accept_multiple_files=True,
-        help="Upload one or more PDFs to build your knowledge base.",
+        "Upload PDFs", type=["pdf"], accept_multiple_files=True,
     )
 
-    top_k = st.slider("Chunks to retrieve", min_value=3, max_value=10, value=5,
-                      help="Higher = more context but slower answers")
+    top_k = st.slider("Chunks to retrieve", 3, 10, 5)
 
     if st.button("🚀 Build Knowledge Base", use_container_width=True, type="primary"):
         if not uploaded_files:
             st.warning("Please upload at least one PDF first.")
         else:
-            with st.spinner("Parsing and embedding documents..."):
-                all_chunks = []
-                file_names = []
+            progress = st.progress(0, text="Parsing PDFs...")
+            all_chunks = []
+            file_names = []
 
-                for uploaded_file in uploaded_files:
-                    # Save to temp file so pdf_parser can open it
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                        tmp.write(uploaded_file.read())
-                        tmp_path = tmp.name
+            for i, uploaded_file in enumerate(uploaded_files):
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(uploaded_file.read())
+                    tmp_path = tmp.name
+                pages = parse_pdf(tmp_path)
+                for page in pages:
+                    page.source_file = uploaded_file.name
+                chunks = chunk_pages(pages)
+                all_chunks.extend(chunks)
+                file_names.append(uploaded_file.name)
+                os.unlink(tmp_path)
+                progress.progress((i + 1) / len(uploaded_files) / 3,
+                                   text=f"Parsed {uploaded_file.name}")
 
-                    pages = parse_pdf(tmp_path)
-                    # Override source_file name with original filename
-                    for page in pages:
-                        page.source_file = uploaded_file.name
+            progress.progress(0.4, text="Building vector + BM25 indexes...")
+            vs = VectorStore()
+            vs.build(all_chunks)
+            bm25 = BM25Store()
+            bm25.build(all_chunks)
 
-                    chunks = chunk_pages(pages)
-                    all_chunks.extend(chunks)
-                    file_names.append(uploaded_file.name)
-                    os.unlink(tmp_path)   # clean up temp file
+            if st.session_state.reranker is None:
+                progress.progress(0.55, text="Loading reranker (~80MB first run)...")
+                st.session_state.reranker = Reranker()
 
-                # Build FAISS index (semantic search)
-                vs = VectorStore()
-                vs.build(all_chunks)
+            progress.progress(0.65, text="Extracting entities for knowledge graph...")
+            extractor = EntityExtractor()
+            entities = extractor.extract(all_chunks)
 
-                # Build BM25 index (keyword search)
-                bm25 = BM25Store()
-                bm25.build(all_chunks)
+            progress.progress(0.80, text="Storing graph in Neo4j...")
+            try:
+                gs = GraphStore()
+                gs.store_chunks(all_chunks)
+                gs.store_entities(entities)
+                st.session_state.graph_store = gs
+                graph_ok = True
+            except Exception as e:
+                st.warning(f"Neo4j skipped (running without graph): {e}")
+                st.session_state.graph_store = None
+                graph_ok = False
 
-                # Load reranker (cached after first download)
-                if "reranker" not in st.session_state:
-                    with st.spinner("Loading reranker model (first run: ~80MB download)..."):
-                        st.session_state.reranker = Reranker()
+            st.session_state.retriever = HybridRetriever(
+                vs, bm25, st.session_state.reranker
+            )
+            st.session_state.entity_extractor = extractor
+            st.session_state.indexed_files = file_names
+            st.session_state.messages = []
 
-                st.session_state.vector_store = vs
-                st.session_state.retriever = HybridRetriever(
-                    vs, bm25, st.session_state.reranker
-                )
-                st.session_state.indexed_files = file_names
-                st.session_state.messages = []   # reset chat
-
-            st.success(f"✅ Indexed {len(all_chunks)} chunks from {len(file_names)} file(s)")
+            progress.progress(1.0, text="Done!")
+            graph_msg = f" + {len(entities)} entities in graph" if graph_ok else ""
+            st.success(f"✅ {len(all_chunks)} chunks indexed{graph_msg}")
 
     if st.session_state.indexed_files:
         st.divider()
         st.subheader("📚 Indexed Files")
-        for fname in st.session_state.indexed_files:
-            st.markdown(f"• `{fname}`")
+        for f in st.session_state.indexed_files:
+            st.markdown(f"• `{f}`")
 
     st.divider()
     if st.button("🗑 Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
-# ── Main chat area ────────────────────────────────────────────────────────────
+# ── Tabs ──────────────────────────────────────────────────────────────────────
 
-st.title("Research Assistant")
+tab_chat, tab_graph = st.tabs(["💬 Chat", "🕸 Knowledge Graph"])
 
-if st.session_state.retriever is None:
-    st.info("👈 Upload PDFs and click **Build Knowledge Base** to start.")
-    st.stop()
+# ── Chat tab ──────────────────────────────────────────────────────────────────
 
-# Display chat history
-for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        st.markdown(f'<div class="chat-user">🧑 **You:** {msg["content"]}</div>',
-                    unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="chat-assistant">🤖 **Assistant:**\n\n{msg["answer"]}</div>',
-                    unsafe_allow_html=True)
+with tab_chat:
+    st.title("Research Assistant")
 
-        # Confidence badge
-        conf = msg.get("confidence", "Medium")
-        conf_class = f"confidence-{conf.lower()}"
-        st.markdown(f'<span class="{conf_class}">Confidence: {conf}</span>',
-                    unsafe_allow_html=True)
+    if st.session_state.retriever is None:
+        st.info("👈 Upload PDFs and click **Build Knowledge Base** to start.")
+        st.stop()
 
-        # Collapsible sources panel
-        with st.expander(f"📎 Sources used ({len(msg['sources'])} chunks)"):
-            for i, src in enumerate(msg["sources"], start=1):
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            with st.chat_message("user"):
+                st.write(msg["content"])
+        else:
+            with st.chat_message("assistant"):
+                st.write(msg["answer"])
+
+                # Agent trace — show sub-questions and retry info
+                sub_qs = msg.get("sub_questions", [])
+                retries = msg.get("retries", 0)
+                if sub_qs:
+                    with st.expander("🧠 Agent reasoning trace"):
+                        st.markdown(f"**Query decomposed into {len(sub_qs)} sub-question(s):**")
+                        for q in sub_qs:
+                            st.markdown(f'<div class="agent-step">🔍 {q}</div>',
+                                        unsafe_allow_html=True)
+                        if retries:
+                            st.markdown(
+                                f'<div class="agent-step">🔄 Retrieval refined {retries}x '
+                                f'(context was insufficient)</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                # Confidence
+                conf = msg.get("confidence", "Medium")
                 st.markdown(
-                    f'<div class="source-card">'
-                    f'<strong>[{i}] {src["source_file"]}</strong> · Page {src["page_number"]} '
-                    f'· Score: {src["relevance_score"]}<br>'
-                    f'<em>{src["text_preview"]}</em>'
-                    f'</div>',
+                    f'<span class="confidence-{conf.lower()}">Confidence: {conf}</span>',
                     unsafe_allow_html=True,
                 )
 
-# ── Chat input ────────────────────────────────────────────────────────────────
+                # Sources
+                sources = msg.get("sources", [])
+                if sources:
+                    with st.expander(f"📎 Sources ({len(sources)} chunks)"):
+                        for i, src in enumerate(sources, 1):
+                            st.markdown(
+                                f'<div class="source-card">'
+                                f'<strong>[{i}] {src["source_file"]}</strong>'
+                                f' · Page {src["page_number"]}'
+                                f' · Score: {src["relevance_score"]}<br>'
+                                f'<em>{src["text_preview"]}</em>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
 
-question = st.chat_input("Ask a question about your documents...")
+    question = st.chat_input("Ask a question about your documents...")
 
-if question:
-    st.session_state.messages.append({"role": "user", "content": question})
+    if question:
+        st.session_state.messages.append({"role": "user", "content": question})
 
-    with st.spinner("Retrieving and generating answer..."):
-        retriever = st.session_state.retriever
-        chunks_with_scores = retriever.retrieve(question, top_k=top_k)
-        result = generate_answer(question, chunks_with_scores)
+        with st.spinner("Agent thinking..."):
+            result = run_agent(
+                question=question,
+                retriever=st.session_state.retriever,
+                graph_store=st.session_state.graph_store,
+                entity_extractor=st.session_state.entity_extractor,
+            )
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        **result,
-    })
+        st.session_state.messages.append({"role": "assistant", **result})
+        st.rerun()
 
-    st.rerun()
+# ── Knowledge Graph tab ───────────────────────────────────────────────────────
+
+with tab_graph:
+    st.title("Knowledge Graph")
+    st.caption("Entity co-occurrence network extracted from your documents.")
+
+    if st.session_state.graph_store is None:
+        st.info("Build a knowledge base with Neo4j credentials set to see the graph.")
+    else:
+        try:
+            from streamlit_agraph import agraph, Node, Edge, Config
+
+            graph_data = st.session_state.graph_store.get_entity_graph(limit=80)
+
+            if not graph_data["nodes"]:
+                st.info("No entity relationships found yet. Upload more documents.")
+            else:
+                # Colour nodes by entity type
+                LABEL_COLORS = {
+                    "PERSON": "#4f8ef7", "ORG": "#f7a54f", "GPE": "#4fd9a5",
+                    "PRODUCT": "#f74f7a", "EVENT": "#c04ff7", "WORK_OF_ART": "#f7e24f",
+                }
+
+                nodes = [
+                    Node(
+                        id=n["id"], label=n["label"][:20],
+                        size=18,
+                        color=LABEL_COLORS.get(n.get("group", ""), "#8899aa"),
+                    )
+                    for n in graph_data["nodes"]
+                ]
+                edges = [
+                    Edge(source=e["source"], target=e["target"],
+                         width=min(e["weight"], 5))
+                    for e in graph_data["edges"]
+                ]
+
+                config = Config(
+                    width=900, height=600,
+                    directed=False,
+                    physics=True,
+                    hierarchical=False,
+                )
+
+                st.markdown(f"**{len(nodes)} entities · {len(edges)} relationships**")
+                agraph(nodes=nodes, edges=edges, config=config)
+
+                # Legend
+                cols = st.columns(len(LABEL_COLORS))
+                for col, (label, color) in zip(cols, LABEL_COLORS.items()):
+                    col.markdown(
+                        f'<span style="color:{color}">■</span> {label}',
+                        unsafe_allow_html=True,
+                    )
+        except ImportError:
+            st.error("Run: pip install streamlit-agraph")
+        except Exception as e:
+            st.error(f"Graph error: {e}")
