@@ -1,0 +1,21 @@
+# render.yaml
+# Deploy to Render with one click: https://render.com
+# Connect your GitHub repo, Render auto-detects this file.
+
+services:
+  - type: web
+    name: graphrag-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free                    # free tier — upgrade for more RAM
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false               # set manually in Render dashboard
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+    healthCheckPath: /healthz
+    autoDeploy: true              # redeploys on every git push to main

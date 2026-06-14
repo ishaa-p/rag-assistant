@@ -9,23 +9,40 @@ pymupdf==1.25.5
 pdfplumber==0.11.6
 
 # Vector store
-faiss-cpu==1.14.2
+faiss-cpu==1.11.0
 
-# Embeddings (local fallback)
+# Embeddings + cross-encoder reranker
 sentence-transformers==4.1.0
 
-# ── Week 2 additions ──────────────────────────────────────────────────────────
+# ── Week 2 ────────────────────────────────────────────────────────────────────
 
-# BM25 keyword search (hybrid retrieval)
+# BM25 keyword search
 rank-bm25==0.2.2
 
-# Cross-encoder reranker (runs locally, no API cost)
-# Model: cross-encoder/ms-marco-MiniLM-L-6-v2  (~80MB download on first run)
-# This is the standard reranker used in production RAG systems
-sentence-transformers==4.1.0   # already listed above, covers cross-encoder too
+# ── Week 3 ────────────────────────────────────────────────────────────────────
+
+# LangGraph — agent loop / state machine
+langgraph==0.3.21
+
+# Neo4j Python driver
+neo4j==5.28.1
+
+# spaCy — NER for entity extraction
+# Version unpinned: 3.8.4 has no ARM64 (Apple Silicon / Linux aarch64) wheel
+# pip will pick the latest compatible build automatically
+spacy>=3.7.0,<4.0.0
 
 # UI
 streamlit==1.45.1
+streamlit-agraph==0.0.45
+
+# ── Week 4 ────────────────────────────────────────────────────────────────────
+
+# RAGAS evaluation
+ragas==0.2.15
+
+# Pandas
+pandas==2.2.3
 
 # Utilities
 python-dotenv==1.1.0

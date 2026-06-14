@@ -1,0 +1,14 @@
+[
+  {
+    "question": "What is the main topic of the document?",
+    "ground_truth": "Replace this with the actual answer from your document."
+  },
+  {
+    "question": "What methodology is described?",
+    "ground_truth": "Replace this with the actual answer from your document."
+  },
+  {
+    "question": "What are the key findings or conclusions?",
+    "ground_truth": "Replace this with the actual answer from your document."
+  }
+]
