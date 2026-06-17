@@ -19,7 +19,6 @@ Why Neo4j:
   Graph traversal finds chunk B also containing "transformer architecture"
   even if B isn't semantically similar to the query — it's structurally linked.
 
-Free tier: https://neo4j.com/cloud/aura-free/ (1 free instance, no credit card)
 """
 
 import os
@@ -148,7 +147,6 @@ class GraphStore:
                 entity_texts=entity_texts,
                 limit=limit,
             )
-            print("Graph-related chunks:", chunk_ids) #***************REMOVE THIS SHITTTTTTTTTTTT ISHA ISHA ISHAAAAAAAA ***********
             return [row["chunk_id"] for row in result]
 
     def get_entity_graph(self, limit: int = 100) -> dict:

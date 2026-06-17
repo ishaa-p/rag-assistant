@@ -11,12 +11,6 @@ What RAGAS measures:
   - context_recall:       did we retrieve all chunks needed to answer?
                           measures how much we missed. Target: > 0.70
 
-Why evaluation matters for your resume:
-  Anyone can build a RAG system. Very few measure it.
-  Being able to say "I improved faithfulness from 0.61 → 0.83 by adding
-  reranking and graph traversal" is a concrete, quantifiable achievement
-  that recruiters and senior engineers remember.
-
 Usage:
     python -m evaluation.ragas_eval \
         --pdf path/to/doc.pdf \
@@ -178,6 +172,17 @@ def evaluate_pipeline(
     )
 
     df = result.to_pandas()
+
+    # RAGAS renames "question" to "user_input" internally in newer versions.
+    # Normalise back to "question" so the rest of our code (and the UI table)
+    # can rely on a consistent column name regardless of RAGAS version.
+    if "user_input" in df.columns and "question" not in df.columns:
+        df = df.rename(columns={"user_input": "question"})
+    elif "question" not in df.columns:
+        # Fallback: RAGAS dropped/renamed it to something else entirely.
+        # Re-attach our original questions list by row position since
+        # to_pandas() preserves row order from the input dataset.
+        df["question"] = questions
 
     # Add aggregate row
     means = df[["faithfulness", "context_precision", "context_recall"]].mean()
