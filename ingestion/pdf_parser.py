@@ -1,6 +1,4 @@
 """
-ingestion/pdf_parser.py
-
 Handles PDF loading and text extraction.
 Uses PyMuPDF (fitz) for layout-aware extraction — it preserves
 paragraph structure better than simple text dumps.
