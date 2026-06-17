@@ -276,7 +276,7 @@ The `ground_truth` is the correct answer; RAGAS compares it against what the pip
         available = [c for c in display_cols if c in df.columns]
         display_df = df[available].copy()
         if "question" in display_df.columns:
-             display_df = display_df[display_df["question"] != "── AVERAGE ──"]
+            display_df = display_df[display_df["question"] != "── AVERAGE ──"]
         display_df.index = range(1, len(display_df) + 1)   # start row numbers at 1, not 0
         st.dataframe(display_df, use_container_width=True)
 
