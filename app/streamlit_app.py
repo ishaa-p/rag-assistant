@@ -90,7 +90,11 @@ with st.sidebar:
 
             progress.progress(0.80, text="Storing graph in Neo4j...")
             try:
-                gs = GraphStore(); gs.clear_all(); gs.store_chunks(all_chunks); gs.store_entities(entities)
+gs = GraphStore()
+                if os.getenv("NEO4J_CLEAR_ON_BUILD", "true").lower() == "true":
+                    gs.clear_all()
+                gs.store_chunks(all_chunks)
+                gs.store_entities(entities)
                 st.session_state.graph_store = gs; graph_ok = True
             except Exception as e:
                 st.warning(f"Neo4j skipped: {e}"); st.session_state.graph_store = None; graph_ok = False
