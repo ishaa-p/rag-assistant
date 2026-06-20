@@ -52,8 +52,24 @@ class GraphStore:
         with self._driver.session() as session:
             session.run("CREATE INDEX chunk_id IF NOT EXISTS FOR (c:Chunk) ON (c.chunk_id)")
             session.run("CREATE INDEX entity_text IF NOT EXISTS FOR (e:Entity) ON (e.text)")
-           
+
     # ── Ingestion ─────────────────────────────────────────────────────────────
+
+    def clear_all(self) -> None:
+        """
+        Delete every Chunk and Entity node (and their relationships).
+
+        Without this, every "Build Knowledge Base" click MERGEs new data
+        on top of whatever was indexed before — across different PDFs,
+        different test runs, even different days. The graph view then
+        shows a mix of unrelated documents, which is confusing and
+        looks broken even though nothing is technically wrong.
+
+        Call this at the start of every fresh build so the graph always
+        reflects only the most recently uploaded document set.
+        """
+        with self._driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
 
     def store_chunks(self, chunks: list[Chunk]) -> None:
         """
@@ -132,8 +148,7 @@ class GraphStore:
         """
         if not entity_texts:
             return []
-        print("Query entities:", entity_texts)
-            
+
         with self._driver.session() as session:
             result = session.run(
                 f"""
