@@ -142,6 +142,7 @@ def retrieve_node(state: AgentState, retriever: HybridRetriever,
         )
         query_entities = entity_extractor.extract([temp_chunk])
         entity_texts = [e.text for e in query_entities]
+        print("EXTRACTED ENTITIES:", [e.text for e in query_entities]) # REMOVEEEEEEEEEEEEEEEEE
 
         if entity_texts:
             related_ids = graph_store.get_related_chunk_ids(entity_texts, hops=1, limit=5)
