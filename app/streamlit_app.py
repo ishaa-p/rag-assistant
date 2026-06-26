@@ -54,7 +54,6 @@ for key, default in [
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🔬 GraphRAG Assistant")
-    st.caption("Week 4 · Complete · Eval + Docker + Deploy")
     st.divider()
     st.subheader("📄 Upload Documents")
 
@@ -90,11 +89,7 @@ with st.sidebar:
 
             progress.progress(0.80, text="Storing graph in Neo4j...")
             try:
-gs = GraphStore()
-                if os.getenv("NEO4J_CLEAR_ON_BUILD", "true").lower() == "true":
-                    gs.clear_all()
-                gs.store_chunks(all_chunks)
-                gs.store_entities(entities)
+                gs = GraphStore(); gs.clear_all(); gs.store_chunks(all_chunks); gs.store_entities(entities)
                 st.session_state.graph_store = gs; graph_ok = True
             except Exception as e:
                 st.warning(f"Neo4j skipped: {e}"); st.session_state.graph_store = None; graph_ok = False
@@ -174,7 +169,12 @@ with tab_graph:
             from streamlit_agraph import agraph, Node, Edge, Config
             graph_data = st.session_state.graph_store.get_entity_graph(limit=80)
             if not graph_data["nodes"]:
-                st.info("No entity relationships found yet.")
+                st.info(
+                    "No strong entity relationships found in this document yet.\n\n"
+                    "This is expected for short or structured documents (like SOPs or UI guides) "
+                    "that don't repeat named people, organizations, or concepts across sections. "
+                    "Try a research paper, news article, or Wikipedia-style PDF for a richer graph."
+                )
             else:
                 LABEL_COLORS = {
                     "PERSON": "#4f8ef7", "ORG": "#f7a54f", "GPE": "#4fd9a5",
