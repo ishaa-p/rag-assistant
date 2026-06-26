@@ -69,7 +69,7 @@ class GraphStore:
         reflects only the most recently uploaded document set.
         """
         with self._driver.session() as session:
-            session.run("MATCH (n) DETACH DELETE n")
+                session.run("MATCH (n) WHERE n:Chunk OR n:Entity DETACH DELETE n")
 
     def store_chunks(self, chunks: list[Chunk]) -> None:
         """
