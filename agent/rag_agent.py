@@ -110,44 +110,29 @@ Example: ["What is attention?", "How is attention used in transformers?"]"""),
     return {"sub_questions": sub_questions}
 
 
-def retrieve_node(state: AgentState, retriever: HybridRetriever,
-                  graph_store: GraphStore, entity_extractor: EntityExtractor) -> dict:
-    """
-    Hybrid + graph retrieval for all sub-questions.
-
-    Two retrieval paths run in parallel:
-      1. HybridRetriever (FAISS + BM25 + reranker) — from Week 2
-      2. GraphStore traversal — entity-based chunk discovery
-
-    Results are merged and deduplicated by chunk_id.
-    """
-    seen_ids: set[str] = set()
-    all_chunks: list[tuple[Chunk, float]] = []
+def retrieve_node(state, retriever, graph_store, entity_extractor, chunk_registry):
+    seen_ids = set()
+    all_chunks = []
 
     for sub_q in state["sub_questions"]:
-        # Path 1: hybrid retrieval
-        hybrid_results = retriever.retrieve(sub_q, top_k=5)
-        for chunk, score in hybrid_results:
+        # Path 1: hybrid (FAISS + BM25 + reranker) — already working
+        for chunk, score in retriever.retrieve(sub_q, top_k=5):
             if chunk.chunk_id not in seen_ids:
                 seen_ids.add(chunk.chunk_id)
                 all_chunks.append((chunk, score))
 
-        # Path 2: graph traversal
-        # Extract entities from the sub-question itself
-        # We create a temporary fake chunk just for entity extraction
-        from ingestion.chunker import Chunk as ChunkCls
-        temp_chunk = ChunkCls(
-            chunk_id="query_temp", text=sub_q,
-            source_file="query", page_number=0, chunk_index=0
-        )
-        query_entities = entity_extractor.extract([temp_chunk])
-        entity_texts = [e.text for e in query_entities]
-        print("EXTRACTED ENTITIES:", [e.text for e in query_entities]) # REMOVEEEEEEEEEEEEEEEEE
+        # Path 2: graph traversal — currently broken, fix:
+        if graph_store is not None:   # guard for missing Neo4j
+            temp_chunk = Chunk(chunk_id="query_temp", text=sub_q,
+                               source_file="query", page_number=0, chunk_index=0)
+            entity_texts = [e.text for e in entity_extractor.extract([temp_chunk])]
 
-        if entity_texts:
-            related_ids = graph_store.get_related_chunk_ids(entity_texts, hops=1, limit=5)
-            # Note: in a full implementation you'd look up these chunks from a
-            # chunk registry. For simplicity we log them — full registry added in Week 4.
+            if entity_texts:
+                related_ids = graph_store.get_related_chunk_ids(entity_texts, hops=1, limit=5)
+                for cid in related_ids:
+                    if cid not in seen_ids and cid in chunk_registry:
+                        seen_ids.add(cid)
+                        all_chunks.append((chunk_registry[cid], 0.5))  # fixed score for graph results
 
     return {"all_chunks": all_chunks}
 
@@ -240,6 +225,7 @@ def build_agent(
     retriever: HybridRetriever,
     graph_store: GraphStore,
     entity_extractor: EntityExtractor,
+    chunk_registry: dict,
 ):
     """
     Assemble and compile the LangGraph state machine.
@@ -253,10 +239,13 @@ def build_agent(
 
     # Add nodes — each is a function that receives state and returns updates
     graph.add_node("plan",     plan_node)
-    graph.add_node("retrieve", partial(retrieve_node,
-                                       retriever=retriever,
-                                       graph_store=graph_store,
-                                       entity_extractor=entity_extractor))
+    graph.add_node("retrieve", partial(
+    retrieve_node,
+    retriever=retriever,
+    graph_store=graph_store,
+    entity_extractor=entity_extractor,
+    chunk_registry=chunk_registry
+    ))
     graph.add_node("verify",   verify_node)
     graph.add_node("refine",   refine_node)
     graph.add_node("generate", generate_node)
@@ -280,6 +269,7 @@ def run_agent(
     retriever: HybridRetriever,
     graph_store: GraphStore,
     entity_extractor: EntityExtractor,
+    chunk_registry: dict,
 ) -> dict:
     """
     Entry point: run the full agentic pipeline for a question.
@@ -287,7 +277,7 @@ def run_agent(
     Returns the same dict shape as generate_answer() from Week 1/2
     so the Streamlit app needs minimal changes.
     """
-    agent = build_agent(retriever, graph_store, entity_extractor)
+    agent = build_agent(retriever, graph_store, entity_extractor,chunk_registry)
 
     initial_state: AgentState = {
         "original_question": question,
