@@ -179,7 +179,12 @@ with tab_graph:
             from streamlit_agraph import agraph, Node, Edge, Config
             graph_data = st.session_state.graph_store.get_entity_graph(limit=80)
             if not graph_data["nodes"]:
-                st.info("No entity relationships found yet.")
+                st.info(
+                    "No strong entity relationships found in this document yet.\n\n"
+                    "This is expected for short or structured documents (like SOPs or UI guides) "
+                    "that don't repeat named people, organizations, or concepts across sections. "
+                    "Try a research paper, news article, or Wikipedia-style PDF for a richer graph."
+                )
             else:
                 LABEL_COLORS = {
                     "PERSON": "#4f8ef7", "ORG": "#f7a54f", "GPE": "#4fd9a5",
