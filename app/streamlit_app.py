@@ -45,6 +45,7 @@ st.markdown("""
 # ── Session state ─────────────────────────────────────────────────────────────
 for key, default in [
     ("retriever", None), ("graph_store", None), ("entity_extractor", None),
+    ("chunk_registry", None),
     ("messages", []), ("indexed_files", []), ("reranker", None),
     ("eval_results", None),
 ]:
@@ -54,7 +55,6 @@ for key, default in [
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🔬 GraphRAG Assistant")
-    st.caption("Week 4 · Complete · Eval + Docker + Deploy")
     st.divider()
     st.subheader("📄 Upload Documents")
 
@@ -79,6 +79,11 @@ with st.sidebar:
             progress.progress(0.4, text="Building vector + BM25 indexes...")
             vs = VectorStore(); vs.build(all_chunks)
             bm25 = BM25Store(); bm25.build(all_chunks)
+            # Map chunk IDs to actual Chunk objects for graph retrieval
+            st.session_state.chunk_registry = {
+                chunk.chunk_id: chunk
+                for chunk in all_chunks
+            }
 
             if st.session_state.reranker is None:
                 progress.progress(0.55, text="Loading reranker (~80MB first run)...")
@@ -90,7 +95,7 @@ with st.sidebar:
 
             progress.progress(0.80, text="Storing graph in Neo4j...")
             try:
-gs = GraphStore()
+                gs = GraphStore()
                 if os.getenv("NEO4J_CLEAR_ON_BUILD", "true").lower() == "true":
                     gs.clear_all()
                 gs.store_chunks(all_chunks)
@@ -157,7 +162,7 @@ with tab_chat:
         st.session_state.messages.append({"role": "user", "content": question})
         with st.spinner("Agent thinking..."):
             result = run_agent(question, st.session_state.retriever,
-                               st.session_state.graph_store, st.session_state.entity_extractor)
+                               st.session_state.graph_store, st.session_state.entity_extractor,st.session_state.chunk_registry)
         st.session_state.messages.append({"role": "assistant", **result})
         st.rerun()
 
